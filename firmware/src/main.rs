@@ -21,67 +21,54 @@ use panic_probe as _;
 async fn main(spawner: embassy::executor::Spawner, p: Peripherals) {
     let board = Microbit::new(p);
 
-    static COMMANDS: Channel<ThreadModeRawMutex, State, 4> = Channel::new();
+    static COMMANDS: Channel<ThreadModeRawMutex, Command, 4> = Channel::new();
 
     let pwm = SimplePwm::new_1ch(board.pwm0, board.p1);
 
     spawner.spawn(motor(pwm, COMMANDS.receiver())).unwrap();
 
     loop {
-        COMMANDS.send(State::Left).await;
+        COMMANDS.send(Command::SwingLeft).await;
         Timer::after(Duration::from_secs(1)).await;
-        COMMANDS.send(State::Right).await;
+        COMMANDS.send(Command::SwingRight).await;
         Timer::after(Duration::from_secs(1)).await;
     }
 }
 
-pub enum State {
-    Left,
-    Right,
+pub enum Command {
+    SwingLeft,
+    SwingRight,
 }
 
 #[embassy::task]
 async fn motor(
     mut pwm: SimplePwm<'static, PWM0>,
-    commands: Receiver<'static, ThreadModeRawMutex, State, 4>,
+    commands: Receiver<'static, ThreadModeRawMutex, Command, 4>,
 ) {
     pwm.set_prescaler(Prescaler::Div128);
     pwm.set_max_duty(2500);
 
-    let mut position = None;
     loop {
         let c = commands.recv().await;
-        match position {
-            Some(State::Left) => {
-                match c {
-                    State::Left => {}
-                    State::Right => {
-                        // Move right
-                        pwm.set_duty(0, 2500 - 218);
-                    }
-                }
+        match c {
+            Command::SwingLeft => {
+                // Move right
+                pwm.set_duty(0, 2500 - 302);
+                Timer::after(Duration::from_millis(500)).await;
+
+                // Move left
+                pwm.set_duty(0, 2500 - 125);
+                Timer::after(Duration::from_millis(500)).await;
             }
-            Some(State::Right) => {
-                match c {
-                    State::Left => {
-                        // Move left
-                        pwm.set_duty(0, 2500 - 156);
-                    }
-                    State::Right => {}
-                }
-            }
-            None => {
-                // Move left first
-                pwm.set_duty(0, 2500 - 156);
-                match c {
-                    State::Left => {}
-                    State::Right => {
-                        // Move right
-                        pwm.set_duty(0, 2500 - 218);
-                    }
-                }
+            Command::SwingRight => {
+                // Move left
+                pwm.set_duty(0, 2500 - 125);
+                Timer::after(Duration::from_millis(500)).await;
+
+                // Move right
+                pwm.set_duty(0, 2500 - 302);
+                Timer::after(Duration::from_millis(500)).await;
             }
         }
-        position = Some(c);
     }
 }
