@@ -1,0 +1,96 @@
+[package]
+authors = [
+    'Ulf Lilleengen <lulf@redhat.com>',
+]
+description = 'Lego osorter firmware'
+edition = '2018'
+keywords = [
+    'microbit',
+    'nrf',
+    'nrf52',
+]
+name = 'legosort-controller'
+resolver = '2'
+version = '0.1.0'
+
+[dependencies]
+cortex-m-rt = '0.7'
+defmt = '0.3'
+defmt-rtt = '0.3'
+
+[dependencies.drogue-device]
+default-features = false
+features = [
+    'defmt',
+    'time',
+    'bsp+microbit',
+]
+git = 'https://github.com/drogue-iot/drogue-device.git'
+rev = '8b680f684609bfc4eabf599af84724f6c3c23742'
+
+[dependencies.embassy]
+default-features = false
+features = ['defmt']
+version = '0.1.0'
+
+[dependencies.embassy-nrf]
+default-features = false
+features = [
+    'nrf52833',
+    'time-driver-rtc1',
+    'gpiote',
+]
+version = '0.1.0'
+
+[dependencies.embedded-hal]
+features = ['unproven']
+version = '0.2'
+
+[dependencies.futures]
+default-features = false
+version = '0.3'
+
+[dependencies.panic-probe]
+features = ['print-defmt']
+version = '0.3'
+
+
+[patch.crates-io.embassy]
+git = 'https://github.com/embassy-rs/embassy.git'
+rev = 'ac3986e40ef297b90de19812aebccfe2e7f9ceec'
+
+[patch.crates-io.embassy-nrf]
+git = 'https://github.com/embassy-rs/embassy.git'
+rev = 'ac3986e40ef297b90de19812aebccfe2e7f9ceec'
+[profile.dev]
+codegen-units = 1
+debug = 2
+debug-assertions = true
+incremental = false
+opt-level = 3
+overflow-checks = true
+
+[profile.dev.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false
+
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = 'fat'
+opt-level = 's'
+overflow-checks = false
+
+[profile.release.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false
+
+[workspace]
