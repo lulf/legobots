@@ -34,6 +34,12 @@ async fn main(spawner: embassy::executor::Spawner, p: Peripherals) {
     let mut a = board.btn_a;
     let mut b = board.btn_b;
     loop {
+        /*
+        COMMANDS.send(Command::SwingLeft).await;
+        Timer::after(Duration::from_secs(2)).await;
+        COMMANDS.send(Command::SwingRight).await;
+        Timer::after(Duration::from_secs(2)).await;
+        */
         let af = a.wait_for_rising_edge();
         let bf = b.wait_for_rising_edge();
         pin_mut!(af);
@@ -62,26 +68,29 @@ async fn motor(
     pwm.set_prescaler(Prescaler::Div128);
     pwm.set_max_duty(2500);
 
+    const LEFT: u16 = 2500 - 160;
+    const RIGHT: u16 = 2500 - 210;
+    const DELAY: Duration = Duration::from_millis(200);
     loop {
         let c = commands.recv().await;
         match c {
             Command::SwingLeft => {
                 // Move right
-                pwm.set_duty(0, 2500 - 302);
-                Timer::after(Duration::from_millis(500)).await;
+                pwm.set_duty(0, RIGHT);
+                Timer::after(DELAY * 2).await;
 
                 // Move left
-                pwm.set_duty(0, 2500 - 125);
-                Timer::after(Duration::from_millis(500)).await;
+                pwm.set_duty(0, LEFT);
+                Timer::after(DELAY).await;
             }
             Command::SwingRight => {
                 // Move left
-                pwm.set_duty(0, 2500 - 125);
-                Timer::after(Duration::from_millis(500)).await;
+                pwm.set_duty(0, LEFT);
+                Timer::after(DELAY * 2).await;
 
                 // Move right
-                pwm.set_duty(0, 2500 - 302);
-                Timer::after(Duration::from_millis(500)).await;
+                pwm.set_duty(0, RIGHT);
+                Timer::after(DELAY).await;
             }
         }
     }
