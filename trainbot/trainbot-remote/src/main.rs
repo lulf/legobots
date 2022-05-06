@@ -8,14 +8,14 @@ use drogue_device::bsp::boards::nrf52::microbit::*;
 use drogue_device::Board;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
+use embassy::util::{select, Either};
 use embassy_nrf::config::Config;
 use embassy_nrf::interrupt::Priority;
 use embassy_nrf::Peripherals;
 use nrf_softdevice::{
-    ble::{central, AddressType, Address, gatt_client},
+    ble::{central, gatt_client, Address, AddressType},
     raw, Softdevice,
 };
-use embassy::util::{select, Either};
 
 #[cfg(feature = "panic-probe")]
 use panic_probe as _;
@@ -38,13 +38,11 @@ fn config() -> Config {
 async fn main(s: Spawner, p: Peripherals) {
     let board = Microbit::new(p);
 
+    defmt::info!("Hello");
+
     // Spawn the underlying softdevice task
     let sd = enable_softdevice("trainbot remote");
     s.spawn(softdevice_task(sd)).unwrap();
-
-    // Watchdog will prevent bootloader from resetting. If your application hangs for more than 5 seconds
-    // (depending on bootloader config), it will enter bootloader which may swap the application back.
-    s.spawn(watchdog_task()).unwrap();
 
     // Spawn control client
     s.spawn(remote_task(sd, board.btn_a, board.btn_b)).unwrap();
@@ -57,47 +55,47 @@ pub struct MotorServiceClient {
 }
 
 #[embassy::task]
-async fn remote_task(
-    sd: &'static Softdevice,
-    mut a: PinButtonA,
-    mut b: PinButtonB,
-) {
+async fn remote_task(sd: &'static Softdevice, mut a: PinButtonA, mut b: PinButtonB) {
     let addrs = &[&Address::new(
         AddressType::RandomStatic,
-        [0x06, 0x6b, 0x71, 0x2c, 0xf5, 0xc0],
+        [0x80, 0x01, 0x92, 0xcb, 0x18, 0xed],
     )];
     let mut config = central::ConnectConfig::default();
     config.scan_config.whitelist = Some(addrs);
+    defmt::info!("Connecting to peripheral");
     if let Ok(conn) = central::connect(sd, &config).await {
         defmt::info!("connected");
         let client: MotorServiceClient = gatt_client::discover(&conn).await.unwrap();
 
         // Read current state
-        let mut value = client.control_read().await.unwrap_or(0);
+        let value: i8 = client.control_read().await.unwrap_or(0);
         defmt::info!("read control value: {}", value);
 
-        const STEP: i8 = 22;
+        const MAX: i16 = i8::MAX as i16;
+        const MIN: i16 = i8::MIN as i16;
+        let mut value = 0;
+        const STEP: i16 = 22;
         loop {
+            defmt::info!("Waiting for button press");
             match select(a.wait_for_any_edge(), b.wait_for_any_edge()).await {
                 Either::First(_) => {
                     if a.is_low() {
-                        if value < 0 {
-                            value += STEP;
-                        } else if value <= i8::MAX {
-                            value += core::cmp::min(STEP, i8::MAX - value);
+                        defmt::info!("BUTTON A EVENT");
+                        if value as i16 + STEP <= MAX {
+                            value += STEP as i8;
                         }
                     }
                 }
                 Either::Second(_) => {
                     if b.is_low() {
-                        if value > 0 {
-                            value -= STEP;
-                        } else if value >= i8::MIN {
-                            value -= core::cmp::min(STEP, value - i8::MIN);
+                        defmt::info!("BUTTON B EVENT");
+                        if value as i16 - STEP >= MIN {
+                            value -= STEP as i8;
                         }
                     }
                 }
             }
+            defmt::info!("Writing new value {}", value);
             let _ = client.control_write(value).await;
         }
     }
@@ -106,16 +104,6 @@ async fn remote_task(
 #[embassy::task]
 async fn softdevice_task(sd: &'static Softdevice) {
     sd.run().await;
-}
-
-// Keeps our system alive
-#[embassy::task]
-async fn watchdog_task() {
-    let mut handle = unsafe { embassy_nrf::wdt::WatchdogHandle::steal(0) };
-    loop {
-        handle.pet();
-        Timer::after(Duration::from_secs(2)).await;
-    }
 }
 
 pub fn enable_softdevice(name: &'static str) -> &'static Softdevice {
@@ -130,7 +118,7 @@ pub fn enable_softdevice(name: &'static str) -> &'static Softdevice {
             conn_count: 2,
             event_length: 24,
         }),
-        conn_gatt: Some(raw::ble_gatt_conn_cfg_t { att_mtu: 256 }),
+        conn_gatt: Some(raw::ble_gatt_conn_cfg_t { att_mtu: 32 }),
         gatts_attr_tab_size: Some(raw::ble_gatts_cfg_attr_tab_size_t {
             attr_tab_size: 32768,
         }),

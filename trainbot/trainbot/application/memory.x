@@ -2,12 +2,12 @@ MEMORY
 {
   /* NOTE 1 K = 1 KiBi = 1024 bytes */
   MBR                               : ORIGIN = 0x00000000, LENGTH = 4K
-  SOFTDEVICE                        : ORIGIN = 0x00001000, LENGTH = 114688
-  FLASH                             : ORIGIN = 0x0001C000, LENGTH = 188416
-  DFU                               : ORIGIN = 0x0004a000, LENGTH = 192512
-  BOOTLOADER                        : ORIGIN = 0x00079000, LENGTH = 24K
-  BOOTLOADER_STATE                  : ORIGIN = 0x0007f000, LENGTH = 4K
-  RAM                               : ORIGIN = 0x2000baa8, LENGTH = 83288
+  SOFTDEVICE                        : ORIGIN = 0x00001000, LENGTH = 155648
+  FLASH                             : ORIGIN = 0x00027000, LENGTH = 163840
+  DFU                               : ORIGIN = 0x0004F000, LENGTH = 167936
+  BOOTLOADER                        : ORIGIN = 0x00078000, LENGTH = 24K
+  BOOTLOADER_STATE                  : ORIGIN = 0x0007E000, LENGTH = 4K
+  RAM                               : ORIGIN = 0x2000BF90, LENGTH = 64K
 }
 
 __bootloader_state_start = ORIGIN(BOOTLOADER_STATE);

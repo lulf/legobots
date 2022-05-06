@@ -24,7 +24,7 @@ use embassy_nrf::Peripherals;
 use heapless::Vec;
 use nrf_softdevice::ble::gatt_server;
 use nrf_softdevice::{
-    ble::{peripheral, Connection},
+    ble::{self, peripheral, Connection},
     raw, Flash, Softdevice,
 };
 
@@ -58,6 +58,7 @@ async fn main(s: Spawner, p: Peripherals) {
 
     let version = FIRMWARE_REVISION.unwrap_or(FIRMWARE_VERSION);
     defmt::info!("Running firmware version {}", version);
+    defmt::info!("My address: {:?}", ble::get_address(sd));
 
     // Watchdog will prevent bootloader from resetting. If your application hangs for more than 5 seconds
     // (depending on bootloader config), it will enter bootloader which may swap the application back.
