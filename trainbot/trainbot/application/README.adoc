@@ -1,6 +1,6 @@
-= Microbit BLE DFU example
+= Trainbot motror controller
 
-Example for the BBC Micro:bit demonstrating bootloader and firmware update capabilities. The example assumes that the nRF softdevice is installed. With this example, you can use BLE to update your microbit.
+Trainbot motor controller 
 
 == Prerequisites
 

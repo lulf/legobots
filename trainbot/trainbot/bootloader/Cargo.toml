@@ -3,9 +3,9 @@ authors = [
     "Ulf Lilleengen <lulf@redhat.com>",
 ]
 edition = "2018"
-name = "microbit-bootloader"
+name = "trainbot-bootloader"
 version = "0.1.0"
-description = "Bootloader for microbit"
+description = "Bootloader for trainbot"
 resolver = "2"
 
 [dependencies]
@@ -13,7 +13,7 @@ defmt = { version = "0.3", optional = true }
 defmt-rtt = { version = "0.3", optional = true }
 
 embassy = { version = "0.1.0", default-features = false }
-embassy-nrf = { version = "0.1.0", default-features = false, features = ["nrf52833"] }
+embassy-nrf = { version = "0.1.0", default-features = false, features = ["nrf52840"] }
 embassy-boot-nrf = { version = "0.1.0", features = ["softdevice"] }
 embassy-boot = { version = "0.1.0" }
 cortex-m = { version = "0.7" }
