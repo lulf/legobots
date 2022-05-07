@@ -7,7 +7,6 @@
 use drogue_device::bsp::boards::nrf52::microbit::*;
 use drogue_device::Board;
 use embassy::executor::Spawner;
-use embassy::time::{Duration, Timer};
 use embassy::util::{select, Either};
 use embassy_nrf::config::Config;
 use embassy_nrf::interrupt::Priority;
@@ -62,41 +61,54 @@ async fn remote_task(sd: &'static Softdevice, mut a: PinButtonA, mut b: PinButto
     )];
     let mut config = central::ConnectConfig::default();
     config.scan_config.whitelist = Some(addrs);
-    defmt::info!("Connecting to peripheral");
-    if let Ok(conn) = central::connect(sd, &config).await {
-        defmt::info!("connected");
-        let client: MotorServiceClient = gatt_client::discover(&conn).await.unwrap();
+    config.conn_params.min_conn_interval = 40;
+    config.conn_params.max_conn_interval = 80;
 
-        // Read current state
-        let value: i8 = client.control_read().await.unwrap_or(0);
-        defmt::info!("read control value: {}", value);
+    loop {
+        defmt::info!("Connecting to peripheral");
+        match central::connect(sd, &config).await {
+            Ok(conn) => {
+                defmt::info!("connected");
+                let client: MotorServiceClient = gatt_client::discover(&conn).await.unwrap();
 
-        const MAX: i16 = i8::MAX as i16;
-        const MIN: i16 = i8::MIN as i16;
-        let mut value = 0;
-        const STEP: i16 = 22;
-        loop {
-            defmt::info!("Waiting for button press");
-            match select(a.wait_for_any_edge(), b.wait_for_any_edge()).await {
-                Either::First(_) => {
-                    if a.is_low() {
-                        defmt::info!("BUTTON A EVENT");
-                        if value as i16 + STEP <= MAX {
-                            value += STEP as i8;
+                // Read current state
+                let value: i8 = client.control_read().await.unwrap_or(0);
+                defmt::info!("read control value: {}", value);
+
+                const MAX: i16 = i8::MAX as i16;
+                const MIN: i16 = i8::MIN as i16;
+                let mut value = 0;
+                const STEP: i16 = 22;
+                loop {
+                    defmt::info!("Waiting for button press");
+                    match select(a.wait_for_any_edge(), b.wait_for_any_edge()).await {
+                        Either::First(_) => {
+                            if a.is_low() {
+                                defmt::info!("BUTTON A EVENT");
+                                if value as i16 + STEP <= MAX {
+                                    value += STEP as i8;
+                                }
+                            }
+                        }
+                        Either::Second(_) => {
+                            if b.is_low() {
+                                defmt::info!("BUTTON B EVENT");
+                                if value as i16 - STEP >= MIN {
+                                    value -= STEP as i8;
+                                }
+                            }
                         }
                     }
-                }
-                Either::Second(_) => {
-                    if b.is_low() {
-                        defmt::info!("BUTTON B EVENT");
-                        if value as i16 - STEP >= MIN {
-                            value -= STEP as i8;
-                        }
+                    defmt::info!("Writing new value {}", value);
+                    if let Err(e) = client.control_write(value).await {
+                        defmt::warn!("Error writing control value: {:?}", e);
+                        break;
                     }
                 }
             }
-            defmt::info!("Writing new value {}", value);
-            let _ = client.control_write(value).await;
+            Err(e) => {
+                defmt::warn!("Error connecting: {:?}", e);
+            }
         }
     }
 }

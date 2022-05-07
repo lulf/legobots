@@ -71,7 +71,7 @@ async fn main(s: Spawner, p: Peripherals) {
     // Fiwmare update service event channel and task
     static EVENTS: Channel<ThreadModeRawMutex, FirmwareServiceEvent, 10> = Channel::new();
     let dfu = FirmwareManager::new(Flash::take(sd), updater::new());
-    let updater = FirmwareGattService::new(&server.firmware, dfu, version.as_bytes(), 64).unwrap();
+    let updater = FirmwareGattService::new(&server.firmware, dfu, version.as_bytes(), 32).unwrap();
     s.spawn(updater_task(updater, EVENTS.receiver().into()))
         .unwrap();
 
@@ -132,7 +132,7 @@ pub async fn gatt_server_task(
 ) {
     let res = gatt_server::run(&conn, server, |e| match e {
         GattServerEvent::Motor(MotorServiceEvent::ControlWrite(value)) => {
-            let command: Command = value.into();
+            let command: Command = Command::new(value);
             let _ = motor.try_send(command);
         }
         GattServerEvent::Firmware(e) => {
@@ -188,6 +188,7 @@ pub async fn advertiser_task(
         )) {
             defmt::warn!("Error spawning gatt task: {:?}", e);
         }
+        commands.send(Command::Stop).await;
     }
 }
 
@@ -212,14 +213,14 @@ pub enum Command {
     Reverse(Speed),
 }
 
-impl From<i8> for Command {
-    fn from(value: i8) -> Command {
+impl Command {
+    pub fn new(value: i8) -> Command {
         if value == 0 {
             Command::Stop
         } else if value > 0 {
-            Command::Forward(value.into())
+            Command::Forward(Speed::new(value))
         } else {
-            Command::Reverse(value.into())
+            Command::Reverse(Speed::new(value))
         }
     }
 }
@@ -233,27 +234,25 @@ pub enum Speed {
     _6,
 }
 
-impl From<i8> for Speed {
-    fn from(value: i8) -> Speed {
+impl Speed {
+    pub fn new(value: i8) -> Speed {
         let value = (value as i16).abs();
-        if value > 110 {
+        if value >= 110 {
             Speed::_6
-        } else if value > 88 {
+        } else if value >= 88 {
             Speed::_5
-        } else if value > 66 {
+        } else if value >= 66 {
             Speed::_4
-        } else if value > 44 {
+        } else if value >= 44 {
             Speed::_3
-        } else if value > 22 {
+        } else if value >= 22 {
             Speed::_2
         } else {
             Speed::_1
         }
     }
-}
 
-impl Into<u16> for Speed {
-    fn into(self) -> u16 {
+    fn duty(&self) -> u16 {
         match self {
             Self::_1 => 2500,
             Self::_2 => 2000,
@@ -299,13 +298,17 @@ impl Motor {
     }
 
     pub fn forward(&mut self, speed: Speed) {
-        self.pwm.set_duty(0, speed as u16);
+        let s = speed.duty();
+        defmt::info!("Forward speed is {}", s);
+        self.pwm.set_duty(0, s);
         self.dir1.set_low();
         self.dir2.set_high();
     }
 
     pub fn reverse(&mut self, speed: Speed) {
-        self.pwm.set_duty(0, speed as u16);
+        let s = speed.duty();
+        defmt::info!("Reverse speed is {}", s);
+        self.pwm.set_duty(0, s);
         self.dir1.set_high();
         self.dir2.set_low();
     }
@@ -343,7 +346,7 @@ pub fn enable_softdevice(name: &'static str) -> &'static Softdevice {
             conn_count: 2,
             event_length: 24,
         }),
-        conn_gatt: Some(raw::ble_gatt_conn_cfg_t { att_mtu: 256 }),
+        conn_gatt: Some(raw::ble_gatt_conn_cfg_t { att_mtu: 128 }),
         gatts_attr_tab_size: Some(raw::ble_gatts_cfg_attr_tab_size_t {
             attr_tab_size: 32768,
         }),
