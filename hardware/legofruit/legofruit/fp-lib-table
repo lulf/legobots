@@ -1,0 +1,4 @@
+(fp_lib_table
+  (lib (name "lego")(type "KiCad")(uri "${KIPRJMOD}/feather.pretty")(options "")(descr ""))
+  (lib (name "spdt")(type "KiCad")(uri "${KIPRJMOD}/JS102011JCQN")(options "")(descr ""))
+)

@@ -1,0 +1,4 @@
+(sym_lib_table
+  (lib (name "feather")(type "KiCad")(uri "${KIPRJMOD}/feather.kicad_sym")(options "")(descr ""))
+  (lib (name "spdt")(type "Legacy")(uri "${KIPRJMOD}/JS102011JCQN/JS102011JCQN.lib")(options "")(descr ""))
+)
