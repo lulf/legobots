@@ -8,3 +8,8 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
+pwm-pca9685 = "0.3.1"
+#linux-embedded-hal = { version = "0.3", features = ["gpio_cdev", ""] }
+linux-embedded-hal = { version = "0.3" }
+embedded-hal = { version = "0.2.7", features = ["unproven"] }
+i2cdev = "0.5.1"
