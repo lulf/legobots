@@ -58,8 +58,7 @@ impl Board {
 
 #[embassy_executor::main]
 async fn main(s: Spawner) {
-    let p = embassy_nrf::init(config());
-    let board: Board = p.into();
+    let board = Board::new(embassy_nrf::init(config()));
 
     // Spawn the underlying softdevice task
     let sd = enable_softdevice("beltbot");
