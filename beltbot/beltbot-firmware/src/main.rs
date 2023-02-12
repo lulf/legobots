@@ -3,33 +3,27 @@
 #![macro_use]
 #![feature(type_alias_impl_trait)]
 
-use botlib::motor::{MotorCommand, Motor};
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::{Channel, DynamicReceiver, DynamicSender};
+use botlib::motor::{Motor, MotorCommand};
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Timer};
 use embassy_nrf::config::Config;
-use embassy_nrf::peripherals::{P0_07, P1_08, P1_09, P0_02, PWM0};
 use embassy_nrf::gpio::{Level, Output, OutputDrive, Pin};
 use embassy_nrf::interrupt::Priority;
+use embassy_nrf::peripherals::{P0_02, P0_07, P1_08, P1_09, PWM0};
 use embassy_nrf::pwm::SimplePwm;
 use embassy_nrf::Peripherals;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::{Channel, DynamicReceiver, DynamicSender};
+use embassy_time::{Duration, Timer};
 use heapless::Vec;
-use nrf_softdevice::ble::gatt_server;
-use nrf_softdevice::{
-    ble::{self, peripheral, Connection},
-    raw, Softdevice,
-};
-use static_cell::StaticCell;
-
+use nrf_softdevice::ble::{self, gatt_server, peripheral, Connection};
+use nrf_softdevice::{raw, Softdevice};
+#[cfg(feature = "defmt-rtt")]
+use nrf_softdevice_defmt_rtt as _;
 #[cfg(feature = "panic-probe")]
 use panic_probe as _;
-
-#[cfg(feature = "nrf-softdevice-defmt-rtt")]
-use nrf_softdevice_defmt_rtt as _;
-
 #[cfg(feature = "panic-reset")]
 use panic_reset as _;
+use static_cell::StaticCell;
 
 const FIRMWARE_VERSION: &str = env!("CARGO_PKG_VERSION");
 const FIRMWARE_REVISION: Option<&str> = option_env!("REVISION");
@@ -48,11 +42,10 @@ struct Board {
     d13: P1_09,
     a4: P0_02,
     pwm0: PWM0,
-
 }
 
-impl From<Peripherals> for Board {
-    fn from(p: Peripherals) -> Self {
+impl Board {
+    fn new(p: Peripherals) -> Self {
         Self {
             d6: p.P0_07,
             d5: p.P1_08,
@@ -120,7 +113,7 @@ async fn main(s: Spawner) {
 
 #[nrf_softdevice::gatt_server]
 pub struct GattServer {
-//    pub firmware: FirmwareService,
+    //    pub firmware: FirmwareService,
     pub motor: MotorService,
 }
 
@@ -152,7 +145,7 @@ pub async fn motor_task(mut motor: Motor, commands: DynamicReceiver<'static, Mot
 pub async fn gatt_server_task(
     conn: Connection,
     server: &'static GattServer,
-//    dfu: DynamicSender<'static, FirmwareServiceEvent>,
+    //    dfu: DynamicSender<'static, FirmwareServiceEvent>,
     motor1: DynamicSender<'static, MotorCommand>,
     motor2: DynamicSender<'static, MotorCommand>,
 ) {
@@ -160,10 +153,9 @@ pub async fn gatt_server_task(
         GattServerEvent::Motor(MotorServiceEvent::ControlWrite(value)) => {
             let _ = motor1.try_send(MotorCommand::new(value[0] as i8));
             let _ = motor2.try_send(MotorCommand::new(value[1] as i8));
-        }
-     //   GattServerEvent::Firmware(e) => {
-     //       let _ = dfu.try_send(e);
-     //   }
+        } //   GattServerEvent::Firmware(e) => {
+          //       let _ = dfu.try_send(e);
+          //   }
     })
     .await;
     if let Err(e) = res {
@@ -176,7 +168,7 @@ pub async fn advertiser_task(
     spawner: Spawner,
     sd: &'static Softdevice,
     server: &'static GattServer,
- //   events: DynamicSender<'static, FirmwareServiceEvent>,
+    //   events: DynamicSender<'static, FirmwareServiceEvent>,
     commands1: DynamicSender<'static, MotorCommand>,
     commands2: DynamicSender<'static, MotorCommand>,
     name: &'static str,
@@ -202,9 +194,7 @@ pub async fn advertiser_task(
             scan_data,
         };
         defmt::debug!("Advertising");
-        let conn = peripheral::advertise_connectable(sd, adv, &config)
-            .await
-            .unwrap();
+        let conn = peripheral::advertise_connectable(sd, adv, &config).await.unwrap();
 
         defmt::debug!("connection established");
         if let Err(e) = spawner.spawn(gatt_server_task(
@@ -249,9 +239,7 @@ pub fn enable_softdevice(name: &'static str) -> &'static mut Softdevice {
             event_length: 24,
         }),
         conn_gatt: Some(raw::ble_gatt_conn_cfg_t { att_mtu: 128 }),
-        gatts_attr_tab_size: Some(raw::ble_gatts_cfg_attr_tab_size_t {
-            attr_tab_size: 32768,
-        }),
+        gatts_attr_tab_size: Some(raw::ble_gatts_cfg_attr_tab_size_t { attr_tab_size: 32768 }),
         gap_role_count: Some(raw::ble_gap_cfg_role_count_t {
             adv_set_count: 1,
             periph_role_count: 3,
@@ -264,9 +252,7 @@ pub fn enable_softdevice(name: &'static str) -> &'static mut Softdevice {
             current_len: name.len() as u16,
             max_len: name.len() as u16,
             write_perm: unsafe { core::mem::zeroed() },
-            _bitfield_1: raw::ble_gap_cfg_device_name_t::new_bitfield_1(
-                raw::BLE_GATTS_VLOC_STACK as u8,
-            ),
+            _bitfield_1: raw::ble_gap_cfg_device_name_t::new_bitfield_1(raw::BLE_GATTS_VLOC_STACK as u8),
         }),
         ..Default::default()
     };

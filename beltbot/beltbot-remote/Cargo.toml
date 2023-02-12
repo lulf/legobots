@@ -1,9 +1,9 @@
 [package]
 edition = "2021"
-name = "beltbot-firmware"
+name = "beltbot-remote"
 version = "0.1.0"
-description = "Beltbot Firmware"
-keywords = ["nrf52840", "nrf", "nrf52", "dfu", "ble"]
+description = "Beltbot Remote"
+keywords = ["nrf52833", "nrf", "nrf52", "microbit", "ble"]
 resolver = "2"
 
 [dependencies]
@@ -15,9 +15,10 @@ embassy-boot-nrf = { version = "0.1.0", default-features = false, features = ["s
 embassy-executor = { version = "0.1.0", default-features = false, features = ["integrated-timers", "nightly"] }
 embassy-sync = { version = "0.1.0", default-features = false }
 embassy-time = { version = "0.1.0", default-features = false }
-embassy-nrf = { version = "0.1.0", default-features = false, features = ["nrf52840", "gpiote", "time-driver-rtc1", "nightly", "unstable-traits"]}
+embassy-futures = { version = "0.1.0", default-features = false }
+embassy-nrf = { version = "0.1.0", default-features = false, features = ["nrf52833", "gpiote", "time-driver-rtc1", "nightly", "unstable-traits"]}
 
-botlib = { path = "../../botlib", features = ["nrf52840"] }
+botlib = { path = "../../botlib", features = ["nrf52833"] }
 
 cortex-m    = { version = "0.7" }
 cortex-m-rt = "0.7"
@@ -25,7 +26,7 @@ heapless = "0.7"
 futures     = { version = "0.3.17", default-features = false, features = ["async-await"] }
 static_cell = "1"
 
-nrf-softdevice = { version = "0.1.0", features = ["ble-peripheral", "ble-gatt-server", "s140", "nrf52840", "critical-section-impl"] }
+nrf-softdevice = { version = "0.1.0", features = ["ble-central", "ble-gatt-client", "s140", "nrf52833", "critical-section-impl"] }
 nrf-softdevice-s140 = { version = "0.1.0" }
 
 [features]
@@ -37,13 +38,14 @@ debug = [
     "nrf-softdevice/defmt",
     "embassy-executor/defmt",
     "embassy-nrf/defmt",
-    "embassy-boot-nrf/defmt",
+#    "embassy-boot-nrf/defmt",
 ]
 
 [patch.crates-io]
 embassy-executor = { git = "https://github.com/embassy-rs/embassy.git", rev = "d159a6c62d09155261c14edec69dc9dd9e662a92"}
 embassy-nrf = { git = "https://github.com/embassy-rs/embassy.git", rev = "d159a6c62d09155261c14edec69dc9dd9e662a92"}
 embassy-time = { git = "https://github.com/embassy-rs/embassy.git", rev = "d159a6c62d09155261c14edec69dc9dd9e662a92"}
+embassy-futures = { git = "https://github.com/embassy-rs/embassy.git", rev = "d159a6c62d09155261c14edec69dc9dd9e662a92"}
 embassy-sync = { git = "https://github.com/embassy-rs/embassy.git", rev = "d159a6c62d09155261c14edec69dc9dd9e662a92"}
 embassy-boot = { git = "https://github.com/embassy-rs/embassy.git", rev = "d159a6c62d09155261c14edec69dc9dd9e662a92"}
 embassy-boot-nrf = { git = "https://github.com/embassy-rs/embassy.git", rev = "d159a6c62d09155261c14edec69dc9dd9e662a92"}
