@@ -69,7 +69,7 @@ async fn main(s: Spawner) {
     let board: Board = p.into();
 
     // Spawn the underlying softdevice task
-    let sd = enable_softdevice("trainbot");
+    let sd = enable_softdevice("beltbot");
 
     let version = FIRMWARE_REVISION.unwrap_or(FIRMWARE_VERSION);
     defmt::info!("Running firmware version {}", version);
@@ -93,15 +93,17 @@ async fn main(s: Spawner) {
     //    .unwrap();
 
     // MOTOR control
-    static COMMANDS: Channel<ThreadModeRawMutex, MotorCommand, 4> = Channel::new();
+    static COMMANDS1: Channel<ThreadModeRawMutex, MotorCommand, 4> = Channel::new();
+    static COMMANDS2: Channel<ThreadModeRawMutex, MotorCommand, 4> = Channel::new();
 
     let in1 = Output::new(board.d6.degrade(), Level::Low, OutputDrive::Standard);
     let in2 = Output::new(board.d5.degrade(), Level::Low, OutputDrive::Standard);
     let stdby = Output::new(board.d13.degrade(), Level::Low, OutputDrive::Standard);
     let pwm = SimplePwm::new_1ch(board.pwm0, board.a4);
-    let m = Motor::new(in1, in2, pwm, stdby);
+    let m1 = Motor::new(in1, in2, pwm, stdby);
 
-    s.spawn(motor_task(m, COMMANDS.receiver().into())).unwrap();
+    s.spawn(motor_task(m1, COMMANDS1.receiver().into())).unwrap();
+    //s.spawn(motor_task(m2, COMMANDS2.receiver().into())).unwrap();
 
     // Starts the bluetooth advertisement and GATT server
     s.spawn(advertiser_task(
@@ -109,8 +111,9 @@ async fn main(s: Spawner) {
         sd,
         server,
         //EVENTS.sender().into(),
-        COMMANDS.sender().into(),
-        "trainbot",
+        COMMANDS1.sender().into(),
+        COMMANDS2.sender().into(),
+        "beltbot",
     ))
     .unwrap();
 }
@@ -124,7 +127,7 @@ pub struct GattServer {
 #[nrf_softdevice::gatt_service(uuid = "00002000-b0cd-11ec-871f-d45ddf138840")]
 pub struct MotorService {
     #[characteristic(uuid = "00002001-b0cd-11ec-871f-d45ddf138840", write, read)]
-    control: i8,
+    control: [u8; 2],
 }
 
 //#[embassy_executor::task]
@@ -140,7 +143,7 @@ pub struct MotorService {
 //    }
 //}
 
-#[embassy_executor::task]
+#[embassy_executor::task(pool_size = 2)]
 pub async fn motor_task(mut motor: Motor, commands: DynamicReceiver<'static, MotorCommand>) {
     motor.run(commands).await;
 }
@@ -150,12 +153,13 @@ pub async fn gatt_server_task(
     conn: Connection,
     server: &'static GattServer,
 //    dfu: DynamicSender<'static, FirmwareServiceEvent>,
-    motor: DynamicSender<'static, MotorCommand>,
+    motor1: DynamicSender<'static, MotorCommand>,
+    motor2: DynamicSender<'static, MotorCommand>,
 ) {
     let res = gatt_server::run(&conn, server, |e| match e {
         GattServerEvent::Motor(MotorServiceEvent::ControlWrite(value)) => {
-            let command: MotorCommand = MotorCommand::new(value);
-            let _ = motor.try_send(command);
+            let _ = motor1.try_send(MotorCommand::new(value[0] as i8));
+            let _ = motor2.try_send(MotorCommand::new(value[1] as i8));
         }
      //   GattServerEvent::Firmware(e) => {
      //       let _ = dfu.try_send(e);
@@ -173,7 +177,8 @@ pub async fn advertiser_task(
     sd: &'static Softdevice,
     server: &'static GattServer,
  //   events: DynamicSender<'static, FirmwareServiceEvent>,
-    commands: DynamicSender<'static, MotorCommand>,
+    commands1: DynamicSender<'static, MotorCommand>,
+    commands2: DynamicSender<'static, MotorCommand>,
     name: &'static str,
 ) {
     let mut adv_data: Vec<u8, 31> = Vec::new();
@@ -206,11 +211,13 @@ pub async fn advertiser_task(
             conn,
             server,
             //events.clone(),
-            commands.clone(),
+            commands1.clone(),
+            commands2.clone(),
         )) {
             defmt::warn!("Error spawning gatt task: {:?}", e);
         }
-        commands.send(MotorCommand::Stop).await;
+        commands1.send(MotorCommand::Stop).await;
+        commands2.send(MotorCommand::Stop).await;
     }
 }
 
