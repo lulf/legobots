@@ -1,22 +1,15 @@
 #![no_std]
 #![no_main]
 #![macro_use]
-#![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
-use botlib::motor::*;
-use drogue_device::bsp::boards::nrf52::adafruit_feather_nrf52840::*;
-use drogue_device::drivers::ble::gatt::dfu::FirmwareGattService;
-use drogue_device::drivers::ble::gatt::dfu::{FirmwareService, FirmwareServiceEvent};
-use drogue_device::firmware::FirmwareManager;
-use drogue_device::Board;
-use embassy::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy::channel::{Channel, DynamicReceiver, DynamicSender};
-use embassy::executor::Spawner;
-use embassy::time::{Duration, Timer};
-use embassy::util::Forever;
-use embassy_boot_nrf::updater;
+use botlib::motor::{MotorCommand, Motor};
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::{Channel, DynamicReceiver, DynamicSender};
+use embassy_executor::Spawner;
+use embassy_time::{Duration, Timer};
 use embassy_nrf::config::Config;
+use embassy_nrf::peripherals::{P0_07, P1_08, P1_09, P0_02, PWM0};
 use embassy_nrf::gpio::{Level, Output, OutputDrive, Pin};
 use embassy_nrf::interrupt::Priority;
 use embassy_nrf::pwm::SimplePwm;
@@ -25,8 +18,9 @@ use heapless::Vec;
 use nrf_softdevice::ble::gatt_server;
 use nrf_softdevice::{
     ble::{self, peripheral, Connection},
-    raw, Flash, Softdevice,
+    raw, Softdevice,
 };
+use static_cell::StaticCell;
 
 #[cfg(feature = "panic-probe")]
 use panic_probe as _;
@@ -48,13 +42,34 @@ fn config() -> Config {
     config
 }
 
-#[embassy::main(config = "config()")]
-async fn main(s: Spawner, p: Peripherals) {
-    let board = AdafruitFeatherNrf52840::new(p);
+struct Board {
+    d6: P0_07,
+    d5: P1_08,
+    d13: P1_09,
+    a4: P0_02,
+    pwm0: PWM0,
+
+}
+
+impl From<Peripherals> for Board {
+    fn from(p: Peripherals) -> Self {
+        Self {
+            d6: p.P0_07,
+            d5: p.P1_08,
+            d13: p.P1_09,
+            a4: p.P0_02,
+            pwm0: p.PWM0,
+        }
+    }
+}
+
+#[embassy_executor::main]
+async fn main(s: Spawner) {
+    let p = embassy_nrf::init(config());
+    let board: Board = p.into();
 
     // Spawn the underlying softdevice task
     let sd = enable_softdevice("trainbot");
-    s.spawn(softdevice_task(sd)).unwrap();
 
     let version = FIRMWARE_REVISION.unwrap_or(FIRMWARE_VERSION);
     defmt::info!("Running firmware version {}", version);
@@ -65,15 +80,17 @@ async fn main(s: Spawner, p: Peripherals) {
     s.spawn(watchdog_task()).unwrap();
 
     // Create a BLE GATT server and make it static
-    static GATT: Forever<GattServer> = Forever::new();
-    let server = GATT.put(gatt_server::register(sd).unwrap());
+    static GATT: StaticCell<GattServer> = StaticCell::new();
+    let server = GATT.init(GattServer::new(sd).unwrap());
+
+    s.spawn(softdevice_task(sd)).unwrap();
 
     // Fiwmare update service event channel and task
-    static EVENTS: Channel<ThreadModeRawMutex, FirmwareServiceEvent, 10> = Channel::new();
-    let dfu = FirmwareManager::new(Flash::take(sd), updater::new());
-    let updater = FirmwareGattService::new(&server.firmware, dfu, version.as_bytes(), 32).unwrap();
-    s.spawn(updater_task(updater, EVENTS.receiver().into()))
-        .unwrap();
+    //static EVENTS: Channel<ThreadModeRawMutex, FirmwareServiceEvent, 10> = Channel::new();
+    //let dfu = FirmwareManager::new(Flash::take(sd), updater::new());
+    //let updater = FirmwareGattService::new(&server.firmware, dfu, version.as_bytes(), 32).unwrap();
+    //s.spawn(updater_task(updater, EVENTS.receiver().into()))
+    //    .unwrap();
 
     // MOTOR control
     static COMMANDS: Channel<ThreadModeRawMutex, MotorCommand, 4> = Channel::new();
@@ -91,7 +108,7 @@ async fn main(s: Spawner, p: Peripherals) {
         s,
         sd,
         server,
-        EVENTS.sender().into(),
+        //EVENTS.sender().into(),
         COMMANDS.sender().into(),
         "trainbot",
     ))
@@ -100,7 +117,7 @@ async fn main(s: Spawner, p: Peripherals) {
 
 #[nrf_softdevice::gatt_server]
 pub struct GattServer {
-    pub firmware: FirmwareService,
+//    pub firmware: FirmwareService,
     pub motor: MotorService,
 }
 
@@ -110,24 +127,29 @@ pub struct MotorService {
     control: i8,
 }
 
-#[embassy::task]
-pub async fn updater_task(
-    mut dfu: FirmwareGattService<'static, FirmwareManager<Flash>>,
-    events: DynamicReceiver<'static, FirmwareServiceEvent>,
-) {
-    loop {
-        let event = events.recv().await;
-        if let Err(e) = dfu.handle(&event).await {
-            defmt::warn!("Error applying firmware event: {:?}", e);
-        }
-    }
+//#[embassy_executor::task]
+//pub async fn updater_task(
+//    mut dfu: FirmwareGattService<'static, FirmwareManager<Flash>>,
+//    events: DynamicReceiver<'static, FirmwareServiceEvent>,
+//) {
+//    loop {
+//        let event = events.recv().await;
+//        if let Err(e) = dfu.handle(&event).await {
+//            defmt::warn!("Error applying firmware event: {:?}", e);
+//        }
+//    }
+//}
+
+#[embassy_executor::task]
+pub async fn motor_task(mut motor: Motor, commands: DynamicReceiver<'static, MotorCommand>) {
+    motor.run(commands).await;
 }
 
-#[embassy::task(pool_size = "4")]
+#[embassy_executor::task(pool_size = "4")]
 pub async fn gatt_server_task(
     conn: Connection,
     server: &'static GattServer,
-    dfu: DynamicSender<'static, FirmwareServiceEvent>,
+//    dfu: DynamicSender<'static, FirmwareServiceEvent>,
     motor: DynamicSender<'static, MotorCommand>,
 ) {
     let res = gatt_server::run(&conn, server, |e| match e {
@@ -135,9 +157,9 @@ pub async fn gatt_server_task(
             let command: MotorCommand = MotorCommand::new(value);
             let _ = motor.try_send(command);
         }
-        GattServerEvent::Firmware(e) => {
-            let _ = dfu.try_send(e);
-        }
+     //   GattServerEvent::Firmware(e) => {
+     //       let _ = dfu.try_send(e);
+     //   }
     })
     .await;
     if let Err(e) = res {
@@ -145,12 +167,12 @@ pub async fn gatt_server_task(
     }
 }
 
-#[embassy::task]
+#[embassy_executor::task]
 pub async fn advertiser_task(
     spawner: Spawner,
     sd: &'static Softdevice,
     server: &'static GattServer,
-    events: DynamicSender<'static, FirmwareServiceEvent>,
+ //   events: DynamicSender<'static, FirmwareServiceEvent>,
     commands: DynamicSender<'static, MotorCommand>,
     name: &'static str,
 ) {
@@ -183,7 +205,7 @@ pub async fn advertiser_task(
         if let Err(e) = spawner.spawn(gatt_server_task(
             conn,
             server,
-            events.clone(),
+            //events.clone(),
             commands.clone(),
         )) {
             defmt::warn!("Error spawning gatt task: {:?}", e);
@@ -192,13 +214,13 @@ pub async fn advertiser_task(
     }
 }
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) {
     sd.run().await;
 }
 
 // Keeps our system alive
-#[embassy::task]
+#[embassy_executor::task]
 async fn watchdog_task() {
     let mut handle = unsafe { embassy_nrf::wdt::WatchdogHandle::steal(0) };
     loop {
@@ -207,7 +229,7 @@ async fn watchdog_task() {
     }
 }
 
-pub fn enable_softdevice(name: &'static str) -> &'static Softdevice {
+pub fn enable_softdevice(name: &'static str) -> &'static mut Softdevice {
     let config = nrf_softdevice::Config {
         clock: Some(raw::nrf_clock_lf_cfg_t {
             source: raw::NRF_CLOCK_LF_SRC_RC as u8,

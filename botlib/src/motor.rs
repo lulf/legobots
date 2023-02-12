@@ -1,10 +1,7 @@
-use embassy::channel::DynamicReceiver;
-use embassy_nrf::config::Config;
-use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive, Pin};
-use embassy_nrf::interrupt::Priority;
+use embassy_sync::channel::DynamicReceiver;
+use embassy_nrf::gpio::{AnyPin, Output};
 use embassy_nrf::peripherals::PWM0;
 use embassy_nrf::pwm::{Prescaler, SimplePwm};
-use embassy_nrf::Peripherals;
 
 pub enum MotorCommand {
     Forward(Speed),
@@ -111,23 +108,22 @@ impl Motor {
         self.dir1.set_high();
         self.dir2.set_low();
     }
-}
 
-#[embassy::task]
-pub async fn motor_task(mut motor: Motor, commands: DynamicReceiver<'static, MotorCommand>) {
-    loop {
-        let c = commands.recv().await;
-        match c {
-            MotorCommand::Forward(speed) => {
-                motor.enable();
-                motor.forward(speed);
-            }
-            MotorCommand::Stop => {
-                motor.disable();
-            }
-            MotorCommand::Reverse(speed) => {
-                motor.enable();
-                motor.reverse(speed);
+     pub async fn run(&mut self, commands: DynamicReceiver<'static, MotorCommand>) {
+        loop {
+            let c = commands.recv().await;
+            match c {
+                MotorCommand::Forward(speed) => {
+                    self.enable();
+                    self.forward(speed);
+                }
+                MotorCommand::Stop => {
+                    self.disable();
+                }
+                MotorCommand::Reverse(speed) => {
+                    self.enable();
+                    self.reverse(speed);
+                }
             }
         }
     }
