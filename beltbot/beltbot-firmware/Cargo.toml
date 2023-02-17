@@ -7,7 +7,8 @@ keywords = ["nrf52840", "nrf", "nrf52", "dfu", "ble"]
 resolver = "2"
 
 [dependencies]
-defmt = { version = "0.3" }
+defmt = "0.3"
+defmt-rtt = "0.4"
 panic-probe = { version = "0.3", features = ["print-defmt"], optional = true }
 panic-reset = { version = "0.1.1", optional = true }
 
@@ -41,13 +42,13 @@ debug = [
 ]
 
 [patch.crates-io]
-embassy-executor = { git = "https://github.com/embassy-rs/embassy.git", rev = "d159a6c62d09155261c14edec69dc9dd9e662a92"}
-embassy-nrf = { git = "https://github.com/embassy-rs/embassy.git", rev = "d159a6c62d09155261c14edec69dc9dd9e662a92"}
-embassy-time = { git = "https://github.com/embassy-rs/embassy.git", rev = "d159a6c62d09155261c14edec69dc9dd9e662a92"}
-embassy-sync = { git = "https://github.com/embassy-rs/embassy.git", rev = "d159a6c62d09155261c14edec69dc9dd9e662a92"}
-embassy-boot = { git = "https://github.com/embassy-rs/embassy.git", rev = "d159a6c62d09155261c14edec69dc9dd9e662a92"}
-embassy-boot-nrf = { git = "https://github.com/embassy-rs/embassy.git", rev = "d159a6c62d09155261c14edec69dc9dd9e662a92"}
-#embassy-lora = { git = "https://github.com/embassy-rs/embassy.git", rev = "d159a6c62d09155261c14edec69dc9dd9e662a92"}
+embassy-executor = { git = "https://github.com/embassy-rs/embassy.git", rev = "e3f8020c3bdf726dfa451b5b190f27191507a18f"}
+embassy-nrf = { git = "https://github.com/embassy-rs/embassy.git", rev = "e3f8020c3bdf726dfa451b5b190f27191507a18f"}
+embassy-time = { git = "https://github.com/embassy-rs/embassy.git", rev = "e3f8020c3bdf726dfa451b5b190f27191507a18f"}
+embassy-sync = { git = "https://github.com/embassy-rs/embassy.git", rev = "e3f8020c3bdf726dfa451b5b190f27191507a18f"}
+embassy-boot = { git = "https://github.com/embassy-rs/embassy.git", rev = "e3f8020c3bdf726dfa451b5b190f27191507a18f"}
+embassy-boot-nrf = { git = "https://github.com/embassy-rs/embassy.git", rev = "e3f8020c3bdf726dfa451b5b190f27191507a18f"}
+#embassy-lora = { git = "https://github.com/embassy-rs/embassy.git", rev = "e3f8020c3bdf726dfa451b5b190f27191507a18f"}
 #embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy.git", rev = "5e94b8060b7f1af8118ca1f943181ce70be92057"}
 nrf-softdevice = { git = "https://github.com/embassy-rs/nrf-softdevice.git", rev = "e8ee783fdd9674a061c2479d0a29e87e4e2a6d2f" }
 nrf-softdevice-s140 = { git = "https://github.com/embassy-rs/nrf-softdevice.git", rev = "e8ee783fdd9674a061c2479d0a29e87e4e2a6d2f"}

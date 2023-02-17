@@ -3,12 +3,13 @@
 #![macro_use]
 #![feature(type_alias_impl_trait)]
 
-use botlib::motor::{Motor, MotorCommand};
+use botlib::motor::{MotorController, Motor, MotorCommand};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::config::Config;
 use embassy_nrf::gpio::{Level, Output, OutputDrive, Pin};
 use embassy_nrf::interrupt::Priority;
-use embassy_nrf::peripherals::{P0_02, P0_07, P1_08, P1_09, PWM0};
+use embassy_nrf::peripherals::{P0_04, P0_05, P0_06, P0_07, P0_26, P0_27, P1_08, PWM0, PWM1};
 use embassy_nrf::pwm::SimplePwm;
 use embassy_nrf::Peripherals;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
@@ -17,8 +18,6 @@ use embassy_time::{Duration, Timer};
 use heapless::Vec;
 use nrf_softdevice::ble::{self, gatt_server, peripheral, Connection};
 use nrf_softdevice::{raw, Softdevice};
-#[cfg(feature = "defmt-rtt")]
-use nrf_softdevice_defmt_rtt as _;
 #[cfg(feature = "panic-probe")]
 use panic_probe as _;
 #[cfg(feature = "panic-reset")]
@@ -37,21 +36,30 @@ fn config() -> Config {
 }
 
 struct Board {
-    d6: P0_07,
+    d10: P0_27,
     d5: P1_08,
-    d13: P1_09,
-    a4: P0_02,
+    d6: P0_07,
+    d9: P0_26,
+    d11: P0_06,
+    a0: P0_04,
+    a1: P0_05,
+
     pwm0: PWM0,
+    pwm1: PWM1,
 }
 
 impl Board {
     fn new(p: Peripherals) -> Self {
         Self {
-            d6: p.P0_07,
+            d10: p.P0_27,
             d5: p.P1_08,
-            d13: p.P1_09,
-            a4: p.P0_02,
+            d6: p.P0_07,
+            d9: p.P0_26,
+            d11: p.P0_06,
+            a0: p.P0_04,
+            a1: p.P0_05,
             pwm0: p.PWM0,
+            pwm1: p.PWM1,
         }
     }
 }
@@ -88,14 +96,26 @@ async fn main(s: Spawner) {
     static COMMANDS1: Channel<ThreadModeRawMutex, MotorCommand, 4> = Channel::new();
     static COMMANDS2: Channel<ThreadModeRawMutex, MotorCommand, 4> = Channel::new();
 
-    let in1 = Output::new(board.d6.degrade(), Level::Low, OutputDrive::Standard);
-    let in2 = Output::new(board.d5.degrade(), Level::Low, OutputDrive::Standard);
-    let stdby = Output::new(board.d13.degrade(), Level::Low, OutputDrive::Standard);
-    let pwm = SimplePwm::new_1ch(board.pwm0, board.a4);
-    let m1 = Motor::new(in1, in2, pwm, stdby);
+    let stdby = Output::new(board.d5.degrade(), Level::Low, OutputDrive::Standard);
 
-    s.spawn(motor_task(m1, COMMANDS1.receiver().into())).unwrap();
-    //s.spawn(motor_task(m2, COMMANDS2.receiver().into())).unwrap();
+    let ain1 = Output::new(board.d11.degrade(), Level::Low, OutputDrive::Standard);
+    let ain2 = Output::new(board.d10.degrade(), Level::Low, OutputDrive::Standard);
+    let pwm0 = SimplePwm::new_1ch(board.pwm0, board.a0);
+    let m1 = Motor::new(ain1, ain2, pwm0);
+
+    let bin1 = Output::new(board.d9.degrade(), Level::Low, OutputDrive::Standard);
+    let bin2 = Output::new(board.d6.degrade(), Level::Low, OutputDrive::Standard);
+    let pwm1 = SimplePwm::new_1ch(board.pwm1, board.a1);
+    let m2 = Motor::new(bin1, bin2, pwm1);
+
+    let ctrl = MotorController::new(m1, m2, stdby);
+
+    s.spawn(motor_task(
+        ctrl,
+        COMMANDS1.receiver().into(),
+        COMMANDS2.receiver().into(),
+    ))
+    .unwrap();
 
     // Starts the bluetooth advertisement and GATT server
     s.spawn(advertiser_task(
@@ -136,8 +156,12 @@ pub struct MotorService {
 //}
 
 #[embassy_executor::task(pool_size = 2)]
-pub async fn motor_task(mut motor: Motor, commands: DynamicReceiver<'static, MotorCommand>) {
-    motor.run(commands).await;
+pub async fn motor_task(
+    mut motor: MotorController,
+    m1: DynamicReceiver<'static, MotorCommand>,
+    m2: DynamicReceiver<'static, MotorCommand>,
+) {
+    motor.run(m1, m2).await;
 }
 
 #[embassy_executor::task(pool_size = "4")]

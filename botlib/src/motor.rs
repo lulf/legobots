@@ -1,7 +1,8 @@
-use embassy_sync::channel::DynamicReceiver;
 use embassy_nrf::gpio::{AnyPin, Output};
-use embassy_nrf::peripherals::PWM0;
+use embassy_nrf::peripherals::{PWM1, PWM0};
 use embassy_nrf::pwm::{Prescaler, SimplePwm};
+use embassy_sync::channel::DynamicReceiver;
+use embassy_futures::select::{select, Either};
 
 pub enum MotorCommand {
     Forward(Speed),
@@ -60,42 +61,31 @@ impl Speed {
     }
 }
 
-pub struct Motor {
+pub struct Motor<T: embassy_nrf::pwm::Instance> {
     dir1: Output<'static, AnyPin>,
     dir2: Output<'static, AnyPin>,
-    pwm: SimplePwm<'static, PWM0>,
-    standby: Output<'static, AnyPin>,
+    pwm: SimplePwm<'static, T>,
 }
 
-impl Motor {
-    pub fn new(
-        dir1: Output<'static, AnyPin>,
-        dir2: Output<'static, AnyPin>,
-        pwm: SimplePwm<'static, PWM0>,
-        standby: Output<'static, AnyPin>,
-    ) -> Self {
-        Self {
-            dir1,
-            dir2,
-            pwm,
-            standby,
-        }
+impl<T: embassy_nrf::pwm::Instance> Motor<T> {
+    pub fn new(dir1: Output<'static, AnyPin>, dir2: Output<'static, AnyPin>, pwm: SimplePwm<'static, T>) -> Self {
+        Self { dir1, dir2, pwm }
     }
 
     pub fn enable(&mut self) {
-        self.standby.set_high();
         self.pwm.set_prescaler(Prescaler::Div128);
         self.pwm.set_max_duty(2500);
         self.pwm.set_duty(0, 2500);
     }
 
     pub fn disable(&mut self) {
-        self.standby.set_low();
+        self.dir1.set_low();
+        self.dir2.set_low();
     }
 
     pub fn forward(&mut self, speed: Speed) {
         let s = speed.duty();
-        defmt::info!("Forward speed is {}", s);
+        defmt::info!("Forward speed duty is {}", s);
         self.pwm.set_duty(0, s);
         self.dir1.set_low();
         self.dir2.set_high();
@@ -103,27 +93,78 @@ impl Motor {
 
     pub fn reverse(&mut self, speed: Speed) {
         let s = speed.duty();
-        defmt::info!("Reverse speed is {}", s);
+        defmt::info!("Reverse speed duty is {}", s);
         self.pwm.set_duty(0, s);
         self.dir1.set_high();
         self.dir2.set_low();
     }
+}
 
-     pub async fn run(&mut self, commands: DynamicReceiver<'static, MotorCommand>) {
+pub struct MotorController {
+    m1: Motor<PWM0>,
+    m2: Motor<PWM1>,
+    standby: Output<'static, AnyPin>,
+}
+
+impl MotorController {
+    pub fn new(m1: Motor<PWM0>, m2: Motor<PWM1>, standby: Output<'static, AnyPin>) -> Self {
+        Self { m1, m2, standby }
+    }
+
+    pub fn enable(&mut self) {
+        self.standby.set_high();
+    }
+
+    pub fn disable(&mut self) {
+        self.standby.set_low();
+    }
+
+    pub async fn run(
+        &mut self,
+        m1: DynamicReceiver<'static, MotorCommand>,
+        m2: DynamicReceiver<'static, MotorCommand>,
+    ) {
+        let mut m1on = false;
+        let mut m2on = false;
         loop {
-            let c = commands.recv().await;
-            match c {
-                MotorCommand::Forward(speed) => {
-                    self.enable();
-                    self.forward(speed);
-                }
-                MotorCommand::Stop => {
-                    self.disable();
-                }
-                MotorCommand::Reverse(speed) => {
-                    self.enable();
-                    self.reverse(speed);
-                }
+            match select(m1.recv(), m2.recv()).await {
+                Either::First(c) => match c {
+                    MotorCommand::Forward(speed) => {
+                        self.m1.enable();
+                        self.m1.forward(speed);
+                        m1on = true;
+                    }
+                    MotorCommand::Stop => {
+                        self.m1.disable();
+                        m1on = false;
+                    }
+                    MotorCommand::Reverse(speed) => {
+                        self.m1.enable();
+                        self.m1.reverse(speed);
+                        m1on = true;
+                    }
+                },
+                Either::Second(c) => match c {
+                    MotorCommand::Forward(speed) => {
+                        self.m2.enable();
+                        self.m2.forward(speed);
+                        m2on = true;
+                    }
+                    MotorCommand::Stop => {
+                        self.m2.disable();
+                        m2on = false;
+                    }
+                    MotorCommand::Reverse(speed) => {
+                        self.m2.enable();
+                        self.m2.reverse(speed);
+                        m2on = true;
+                    }
+                },
+            }
+            if m1on || m2on {
+                self.enable();
+            } else {
+                self.disable();
             }
         }
     }
