@@ -5,11 +5,10 @@ pub struct Servo {
 pub type ServoId = u8;
 
 pub enum ServoCommand {
-    SwingLeft(ServoId),
-    SwingRight(ServoId),
+    StepLeft,
+    StepRight,
 }
 
-#[embassy::task]
 pub async fn servo_task(
     mut servo: Servo,
     commands: DynamicReceiver<'static, ServoCommand>,

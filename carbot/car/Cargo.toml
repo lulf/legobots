@@ -1,0 +1,26 @@
+[package]
+authors = [
+    "Ulf Lilleengen <lulf@redhat.com>",
+]
+name = "carbot-car"
+version = "0.1.0"
+resolver = "2"
+edition = "2018"
+
+[dependencies]
+defmt = { version = "0.3" }
+defmt-rtt = "0.4"
+panic-probe = { version = "0.3", features = ["print-defmt"] }
+
+embassy-executor = { version = "0.5", default-features = false, features = ["integrated-timers", "executor-thread", "arch-cortex-m", "defmt"] }
+embassy-nrf = { version = "0.1", default-features = false, features = ["nrf52840", "gpiote", "time-driver-rtc1", "time"]}
+embassy-sync = { version = "0.5.0", features = ["defmt"] }
+embassy-futures = { version = "0.1.0" }
+
+cortex-m = "0.7"
+cortex-m-rt = "0.7"
+heapless = "0.8"
+static_cell = "2"
+
+nrf-softdevice = { version = "0.1", features = ["ble-peripheral", "ble-gatt-server", "s140", "nrf52840", "critical-section-impl"] }
+nrf-softdevice-s140 = { version = "0.1" }
