@@ -18,6 +18,7 @@ use embassy_nrf::twim::Twim;
 use embassy_nrf::{bind_interrupts, peripherals, saadc, spim, twim};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::{Channel, DynamicReceiver, DynamicSender};
+use embassy_time::{Duration, Timer};
 use heapless::Vec;
 use nrf_softdevice::{
     ble::{gatt_server, peripheral, Connection},
@@ -42,7 +43,7 @@ async fn main(s: Spawner) {
     let server = GATT.init(CarBotServer::new(sd).unwrap());
 
     static MOTOR: Channel<ThreadModeRawMutex, MotorCommand, 4> = Channel::new();
-    static RELAY: Channel<ThreadModeRawMutex, RelayCommand, 4> = Channel::new();
+    static SERVO: Channel<ThreadModeRawMutex, ServoCommand, 4> = Channel::new();
 
     s.spawn(softdevice_task(sd)).unwrap();
 
@@ -56,16 +57,53 @@ async fn main(s: Spawner) {
 
     s.spawn(motor_task(ctrl, MOTOR.receiver().into())).unwrap();
 
+    let pwm1 = SimplePwm::new_1ch(p.PWM1, p.P0_30);
+    let servo = Servo::new(pwm1);
+    let ctrl = ServoController::new(servo);
+    s.spawn(servo_task(ctrl, SERVO.receiver().into())).unwrap();
+
     // Starts the bluetooth advertisement and GATT server
     s.spawn(advertiser_task(
         s,
         sd,
         server,
         MOTOR.sender().into(),
-        RELAY.sender().into(),
+        SERVO.sender().into(),
         "carbot",
     ))
     .unwrap();
+
+    // Power on self test.
+    Timer::after(Duration::from_secs(1)).await;
+    // Run motor forward at max speed for 10 secs
+    MOTOR.send(MotorCommand::Forward(Speed::_6)).await;
+    Timer::after(Duration::from_secs(5)).await;
+    //
+    // Run motor backward at max speed for 10 secs
+    MOTOR.send(MotorCommand::Reverse(Speed::_6)).await;
+    Timer::after(Duration::from_secs(5)).await;
+
+    MOTOR.send(MotorCommand::Stop).await;
+    Timer::after(Duration::from_secs(5)).await;
+    //
+    // Swing left
+    //
+    SERVO.send(ServoCommand::StepLeft).await;
+    Timer::after(Duration::from_secs(5)).await;
+    //
+    // Swing center
+    SERVO.send(ServoCommand::Center).await;
+    Timer::after(Duration::from_secs(5)).await;
+    //
+    // Swing right
+    SERVO.send(ServoCommand::StepRight).await;
+    Timer::after(Duration::from_secs(5)).await;
+
+    SERVO.send(ServoCommand::StepLeft).await;
+    Timer::after(Duration::from_secs(5)).await;
+
+    SERVO.send(ServoCommand::Center).await;
+    Timer::after(Duration::from_secs(5)).await;
 }
 
 #[nrf_softdevice::gatt_server]
@@ -79,7 +117,7 @@ pub struct CarBotService {
     motor_control: i8,
 
     #[characteristic(uuid = "00002002-b0cd-11ec-871f-d45ddf138840", write, read)]
-    relay_control: i8,
+    servo_control: i8,
 }
 
 #[embassy_executor::task(pool_size = "2")]
@@ -87,16 +125,16 @@ pub async fn gatt_server_task(
     conn: Connection,
     server: &'static CarBotServer,
     motor: DynamicSender<'static, MotorCommand>,
-    relay: DynamicSender<'static, RelayCommand>,
+    servo: DynamicSender<'static, ServoCommand>,
 ) {
-    let res = gatt_server::run(&conn, server, |e| match e {
+    let _res = gatt_server::run(&conn, server, |e| match e {
         CarBotServerEvent::Service(CarBotServiceEvent::MotorControlWrite(value)) => {
             let command: MotorCommand = MotorCommand::new(value);
             let _ = motor.try_send(command);
         }
-        CarBotServerEvent::Service(CarBotServiceEvent::RelayControlWrite(value)) => {
-            let command: RelayCommand = RelayCommand::new(value);
-            let _ = relay.try_send(command);
+        CarBotServerEvent::Service(CarBotServiceEvent::ServoControlWrite(value)) => {
+            let command: ServoCommand = ServoCommand::new(value);
+            let _ = servo.try_send(command);
         }
     })
     .await;
@@ -109,7 +147,7 @@ pub async fn advertiser_task(
     sd: &'static Softdevice,
     server: &'static CarBotServer,
     motor: DynamicSender<'static, MotorCommand>,
-    relay: DynamicSender<'static, RelayCommand>,
+    servo: DynamicSender<'static, ServoCommand>,
     name: &'static str,
 ) {
     let mut adv_data: Vec<u8, 31> = Vec::new();
@@ -136,17 +174,22 @@ pub async fn advertiser_task(
         let conn = peripheral::advertise_connectable(sd, adv, &config).await.unwrap();
 
         defmt::debug!("connection established");
-        if let Err(e) = spawner.spawn(gatt_server_task(conn, server, motor.clone(), relay.clone())) {
+        if let Err(e) = spawner.spawn(gatt_server_task(conn, server, motor.clone(), servo.clone())) {
             defmt::warn!("Error spawning gatt task: {:?}", e);
         }
         motor.send(MotorCommand::Stop).await;
-        relay.send(RelayCommand::Center).await;
+        servo.send(ServoCommand::Center).await;
     }
 }
 
 #[embassy_executor::task]
 pub async fn motor_task(mut motor: MotorController, m1: DynamicReceiver<'static, MotorCommand>) {
     motor.run(m1).await;
+}
+
+#[embassy_executor::task]
+pub async fn servo_task(mut servo: ServoController, m1: DynamicReceiver<'static, ServoCommand>) {
+    servo.run(m1).await;
 }
 
 #[embassy_executor::task]
@@ -212,23 +255,25 @@ impl Speed {
 }
 
 pub struct Motor<T: embassy_nrf::pwm::Instance> {
-    dir1: Output<'static, AnyPin>,
-    dir2: Output<'static, AnyPin>,
+    dir1: Output<'static>,
+    dir2: Output<'static>,
     pwm: SimplePwm<'static, T>,
 }
 
 impl<T: embassy_nrf::pwm::Instance> Motor<T> {
-    pub fn new(dir1: Output<'static, AnyPin>, dir2: Output<'static, AnyPin>, pwm: SimplePwm<'static, T>) -> Self {
+    pub fn new(dir1: Output<'static>, dir2: Output<'static>, pwm: SimplePwm<'static, T>) -> Self {
         Self { dir1, dir2, pwm }
     }
 
     pub fn enable(&mut self) {
+        self.pwm.enable();
         self.pwm.set_prescaler(Prescaler::Div128);
         self.pwm.set_max_duty(2500);
         self.pwm.set_duty(0, 2500);
     }
 
     pub fn disable(&mut self) {
+        self.pwm.disable();
         self.dir1.set_low();
         self.dir2.set_low();
     }
@@ -252,11 +297,11 @@ impl<T: embassy_nrf::pwm::Instance> Motor<T> {
 
 pub struct MotorController {
     m1: Motor<PWM0>,
-    standby: Output<'static, AnyPin>,
+    standby: Output<'static>,
 }
 
 impl MotorController {
-    pub fn new(m1: Motor<PWM0>, standby: Output<'static, AnyPin>) -> Self {
+    pub fn new(m1: Motor<PWM0>, standby: Output<'static>) -> Self {
         Self { m1, standby }
     }
 
@@ -296,20 +341,88 @@ impl MotorController {
     }
 }
 
-pub enum RelayCommand {
+pub enum ServoCommand {
     StepLeft,
     Center,
     StepRight,
 }
 
-impl RelayCommand {
+impl ServoCommand {
     pub fn new(value: i8) -> Self {
         if value == 0 {
-            RelayCommand::Center
+            ServoCommand::Center
         } else if value > 0 {
-            RelayCommand::StepLeft
+            ServoCommand::StepLeft
         } else {
-            RelayCommand::StepRight
+            ServoCommand::StepRight
+        }
+    }
+}
+
+pub struct Servo<T: embassy_nrf::pwm::Instance> {
+    pwm: SimplePwm<'static, T>,
+}
+
+const SERVO_STEP: u16 = 1000;
+impl<T: embassy_nrf::pwm::Instance> Servo<T> {
+    pub fn new(pwm: SimplePwm<'static, T>) -> Self {
+        Self { pwm }
+    }
+
+    pub fn enable(&mut self) {
+        self.pwm.enable();
+        self.pwm.set_prescaler(Prescaler::Div128);
+        self.pwm.set_max_duty(2500);
+        self.pwm.set_duty(0, 2500 / 2);
+    }
+
+    pub fn disable(&mut self) {
+        self.pwm.disable();
+    }
+
+    pub fn left(&mut self) {
+        let mut duty = self.pwm.duty(0);
+        duty = if duty < SERVO_STEP { 0 } else { duty - SERVO_STEP };
+        defmt::info!("Servo duty is {}", duty);
+        self.pwm.set_duty(0, duty);
+    }
+
+    pub fn right(&mut self) {
+        let mut duty = self.pwm.duty(0);
+        duty = core::cmp::min(2500, duty + SERVO_STEP);
+        defmt::info!("Servo duty is {}", duty);
+        self.pwm.set_duty(0, duty);
+    }
+
+    pub fn center(&mut self) {
+        defmt::info!("Center");
+        self.pwm.set_duty(0, 2500 / 2);
+    }
+}
+
+pub struct ServoController {
+    servo: Servo<PWM1>,
+}
+
+impl ServoController {
+    pub fn new(servo: Servo<PWM1>) -> Self {
+        Self { servo }
+    }
+
+    pub async fn run(&mut self, m1: DynamicReceiver<'static, ServoCommand>) {
+        self.servo.enable();
+        loop {
+            match m1.receive().await {
+                ServoCommand::StepLeft => {
+                    self.servo.left();
+                }
+                ServoCommand::Center => {
+                    self.servo.center();
+                }
+                ServoCommand::StepRight => {
+                    self.servo.right();
+                }
+            }
         }
     }
 }
