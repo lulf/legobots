@@ -4,6 +4,7 @@
 use defmt_rtt as _;
 use panic_probe as _;
 
+use defmt::info;
 use embassy_executor::Spawner;
 use embassy_futures::select::{select, Either};
 use embassy_nrf::config::Config;
@@ -37,6 +38,7 @@ fn config() -> Config {
 #[embassy_executor::main]
 async fn main(s: Spawner) {
     let p = embassy_nrf::init(config());
+    info!("Hello, world");
     let sd = enable_softdevice("Carbot Car");
 
     static GATT: StaticCell<CarBotServer> = StaticCell::new();
@@ -57,7 +59,7 @@ async fn main(s: Spawner) {
 
     s.spawn(motor_task(ctrl, MOTOR.receiver().into())).unwrap();
 
-    let pwm1 = SimplePwm::new_1ch(p.PWM1, p.P0_30);
+    let pwm1 = SimplePwm::new_1ch(p.PWM1, p.P0_03);
     let servo = Servo::new(pwm1);
     let ctrl = ServoController::new(servo);
     s.spawn(servo_task(ctrl, SERVO.receiver().into())).unwrap();
@@ -74,36 +76,50 @@ async fn main(s: Spawner) {
     .unwrap();
 
     // Power on self test.
-    Timer::after(Duration::from_secs(1)).await;
-    // Run motor forward at max speed for 10 secs
-    MOTOR.send(MotorCommand::Forward(Speed::_6)).await;
-    Timer::after(Duration::from_secs(5)).await;
-    //
-    // Run motor backward at max speed for 10 secs
-    MOTOR.send(MotorCommand::Reverse(Speed::_6)).await;
-    Timer::after(Duration::from_secs(5)).await;
+    //info!("Before timer");
+    //Timer::after(Duration::from_secs(1)).await;
+    //info!("TEST1");
+    //// Run motor forward at max speed for 10 secs
+    //MOTOR.send(MotorCommand::Forward(Speed::_6)).await;
+    //Timer::after(Duration::from_secs(5)).await;
+    ////
+    //// Run motor backward at max speed for 10 secs
+    //info!("TEST2");
+    //MOTOR.send(MotorCommand::Reverse(Speed::_6)).await;
+    //Timer::after(Duration::from_secs(5)).await;
 
-    MOTOR.send(MotorCommand::Stop).await;
-    Timer::after(Duration::from_secs(5)).await;
-    //
-    // Swing left
-    //
-    SERVO.send(ServoCommand::StepLeft).await;
-    Timer::after(Duration::from_secs(5)).await;
-    //
+    //info!("TEST3");
+    //MOTOR.send(MotorCommand::Stop).await;
+    //Timer::after(Duration::from_secs(5)).await;
+    ////
+    ////
+    ////
     // Swing center
-    SERVO.send(ServoCommand::Center).await;
-    Timer::after(Duration::from_secs(5)).await;
-    //
-    // Swing right
-    SERVO.send(ServoCommand::StepRight).await;
-    Timer::after(Duration::from_secs(5)).await;
+    //info!("TEST5");
+    //SERVO.send(ServoCommand::Center).await;
+    //Timer::after(Duration::from_secs(2)).await;
+    ////// Swing left
+    //////
+    //info!("TEST4");
+    //SERVO.send(ServoCommand::StepLeft).await;
+    //Timer::after(Duration::from_secs(2)).await;
+    //SERVO.send(ServoCommand::StepLeft).await;
+    //Timer::after(Duration::from_secs(2)).await;
+    //SERVO.send(ServoCommand::StepLeft).await;
+    ////
+    ////
+    //// Swing right
+    //info!("TEST6");
+    //SERVO.send(ServoCommand::StepRight).await;
+    //Timer::after(Duration::from_secs(2)).await;
+    //SERVO.send(ServoCommand::StepRight).await;
+    //Timer::after(Duration::from_secs(2)).await;
+    //SERVO.send(ServoCommand::StepRight).await;
+    //Timer::after(Duration::from_secs(2)).await;
 
-    SERVO.send(ServoCommand::StepLeft).await;
-    Timer::after(Duration::from_secs(5)).await;
-
-    SERVO.send(ServoCommand::Center).await;
-    Timer::after(Duration::from_secs(5)).await;
+    //info!("TEST8");
+    //SERVO.send(ServoCommand::Center).await;
+    //Timer::after(Duration::from_secs(2)).await;
 }
 
 #[nrf_softdevice::gatt_server]
@@ -316,6 +332,7 @@ impl MotorController {
     pub async fn run(&mut self, m1: DynamicReceiver<'static, MotorCommand>) {
         let mut m1on = false;
         loop {
+            info!("Awaiting motor command");
             match m1.receive().await {
                 MotorCommand::Forward(speed) => {
                     self.m1.enable();
@@ -363,17 +380,21 @@ pub struct Servo<T: embassy_nrf::pwm::Instance> {
     pwm: SimplePwm<'static, T>,
 }
 
-const SERVO_STEP: u16 = 1000;
+const MAX_LEFT: u16 = 2500 - 218;
+const CENTER: u16 = 2500 - 250;
+const MAX_RIGHT: u16 = 2500 - 282;
+const SERVO_STEP: u16 = 5;
+
 impl<T: embassy_nrf::pwm::Instance> Servo<T> {
     pub fn new(pwm: SimplePwm<'static, T>) -> Self {
         Self { pwm }
     }
 
     pub fn enable(&mut self) {
-        self.pwm.enable();
         self.pwm.set_prescaler(Prescaler::Div128);
         self.pwm.set_max_duty(2500);
-        self.pwm.set_duty(0, 2500 / 2);
+        self.pwm.set_duty(0, CENTER);
+        self.pwm.enable();
     }
 
     pub fn disable(&mut self) {
@@ -382,21 +403,29 @@ impl<T: embassy_nrf::pwm::Instance> Servo<T> {
 
     pub fn left(&mut self) {
         let mut duty = self.pwm.duty(0);
-        duty = if duty < SERVO_STEP { 0 } else { duty - SERVO_STEP };
+        duty = if duty + SERVO_STEP > MAX_LEFT {
+            MAX_LEFT
+        } else {
+            duty + SERVO_STEP
+        };
         defmt::info!("Servo duty is {}", duty);
         self.pwm.set_duty(0, duty);
     }
 
     pub fn right(&mut self) {
         let mut duty = self.pwm.duty(0);
-        duty = core::cmp::min(2500, duty + SERVO_STEP);
+        duty = if duty - SERVO_STEP < MAX_RIGHT {
+            MAX_RIGHT
+        } else {
+            duty - SERVO_STEP
+        };
         defmt::info!("Servo duty is {}", duty);
         self.pwm.set_duty(0, duty);
     }
 
     pub fn center(&mut self) {
         defmt::info!("Center");
-        self.pwm.set_duty(0, 2500 / 2);
+        self.pwm.set_duty(0, CENTER);
     }
 }
 
@@ -412,6 +441,7 @@ impl ServoController {
     pub async fn run(&mut self, m1: DynamicReceiver<'static, ServoCommand>) {
         self.servo.enable();
         loop {
+            info!("Awaiting servo command");
             match m1.receive().await {
                 ServoCommand::StepLeft => {
                     self.servo.left();
