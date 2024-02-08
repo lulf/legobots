@@ -39,7 +39,7 @@ fn config() -> Config {
 async fn main(s: Spawner) {
     let p = embassy_nrf::init(config());
     info!("Hello, world");
-    let sd = enable_softdevice("Carbot Car");
+    let sd = enable_softdevice("carbot");
 
     static GATT: StaticCell<CarBotServer> = StaticCell::new();
     let server = GATT.init(CarBotServer::new(sd).unwrap());
@@ -136,13 +136,14 @@ pub struct CarBotService {
     servo_control: i8,
 }
 
-#[embassy_executor::task(pool_size = "2")]
+#[embassy_executor::task(pool_size = "4")]
 pub async fn gatt_server_task(
     conn: Connection,
     server: &'static CarBotServer,
     motor: DynamicSender<'static, MotorCommand>,
     servo: DynamicSender<'static, ServoCommand>,
 ) {
+    defmt::info!("Starting gatt server");
     let _res = gatt_server::run(&conn, server, |e| match e {
         CarBotServerEvent::Service(CarBotServiceEvent::MotorControlWrite(value)) => {
             let command: MotorCommand = MotorCommand::new(value);
@@ -186,10 +187,9 @@ pub async fn advertiser_task(
             adv_data: &adv_data[..],
             scan_data,
         };
-        defmt::debug!("Advertising");
+        defmt::info!("Advertising");
         let conn = peripheral::advertise_connectable(sd, adv, &config).await.unwrap();
 
-        defmt::debug!("connection established");
         if let Err(e) = spawner.spawn(gatt_server_task(conn, server, motor.clone(), servo.clone())) {
             defmt::warn!("Error spawning gatt task: {:?}", e);
         }
@@ -332,7 +332,6 @@ impl MotorController {
     pub async fn run(&mut self, m1: DynamicReceiver<'static, MotorCommand>) {
         let mut m1on = false;
         loop {
-            info!("Awaiting motor command");
             match m1.receive().await {
                 MotorCommand::Forward(speed) => {
                     self.m1.enable();
@@ -380,10 +379,10 @@ pub struct Servo<T: embassy_nrf::pwm::Instance> {
     pwm: SimplePwm<'static, T>,
 }
 
-const MAX_LEFT: u16 = 2500 - 218;
+const MAX_LEFT: u16 = 2500 - 228;
 const CENTER: u16 = 2500 - 250;
-const MAX_RIGHT: u16 = 2500 - 282;
-const SERVO_STEP: u16 = 5;
+const MAX_RIGHT: u16 = 2500 - 272;
+const SERVO_STEP: u16 = 4;
 
 impl<T: embassy_nrf::pwm::Instance> Servo<T> {
     pub fn new(pwm: SimplePwm<'static, T>) -> Self {
@@ -441,7 +440,6 @@ impl ServoController {
     pub async fn run(&mut self, m1: DynamicReceiver<'static, ServoCommand>) {
         self.servo.enable();
         loop {
-            info!("Awaiting servo command");
             match m1.receive().await {
                 ServoCommand::StepLeft => {
                     self.servo.left();
