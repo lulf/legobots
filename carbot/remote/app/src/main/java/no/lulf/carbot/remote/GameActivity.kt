@@ -1,6 +1,7 @@
 package no.lulf.carbot.remote
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.content.Context
 import android.os.Bundle
@@ -26,6 +27,8 @@ import android.bluetooth.le.ScanResult
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.util.Log
+import android.view.MotionEvent
+import android.view.View
 import android.widget.Button
 import android.widget.RelativeLayout
 import androidx.core.app.ActivityCompat
@@ -42,6 +45,7 @@ class GameActivity: Activity() {
     private var motorValue: Byte = 0;
     private var servoValue: Byte = 0;
     private val writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE;
+    @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -57,8 +61,8 @@ class GameActivity: Activity() {
         // Set click listeners
         buttonUp.setOnClickListener { forward() }
         buttonDown.setOnClickListener { backward() }
-        buttonLeft.setOnClickListener { left() }
-        buttonRight.setOnClickListener { right() }
+        buttonLeft.setOnTouchListener({ v, event ->  left(event)});
+        buttonRight.setOnTouchListener { v, event -> right(event)}
         buttonReset.setOnClickListener { reset() }
 
 
@@ -93,23 +97,52 @@ class GameActivity: Activity() {
         }
     }
 
-    private fun left() {
-        servoValue = 1;
+    private fun left(event: MotionEvent): Boolean {
+        val value = when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                1
+            }
+            MotionEvent.ACTION_UP -> {
+                0
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                0
+            }
+            else -> {
+                return false;
+            }
+        }
+        servoValue = value.toByte();
         Log.v(TAG, "LEFT " + servoValue)
 
         servoChar?.let {
             gatt?.writeCharacteristic(it, byteArrayOf(servoValue), writeType)
         }
-
+        return true;
     }
 
-    private fun right() {
-        servoValue = -1;
+    private fun right(event: MotionEvent): Boolean {
+        val value = when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                -1
+            }
+            MotionEvent.ACTION_UP -> {
+                0
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                0
+            }
+            else -> {
+                return false;
+            }
+        }
+        servoValue = value.toByte();
         Log.v(TAG, "RIGHT " + servoValue)
 
         servoChar?.let {
             gatt?.writeCharacteristic(it, byteArrayOf(servoValue), writeType)
         }
+        return true;
     }
 
     private fun reset() {
