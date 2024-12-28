@@ -1,27 +1,50 @@
-use core::time::Duration;
-use linux_embedded_hal::I2cdev;
-use pwm_pca9685::{Address, Channel, Pca9685};
+#![no_std]
+#![no_main]
 
-#[tokio::main]
-async fn main() -> Result<(), anyhow::Error> {
-    let dev = I2cdev::new("/dev/i2c-1").unwrap();
-    let address = Address::default();
-    let mut pwm = Pca9685::new(dev, address).unwrap();
+use apds9960::*;
+use embassy_executor::Spawner;
+use embassy_rp::gpio::{Input, Pull};
+use embassy_rp::i2c::{self, Config};
+use embassy_time::{Duration, Timer};
 
-    // This corresponds to a frequency of 60 Hz.
-    pwm.set_prescale(100).unwrap();
+use {defmt_rtt as _, panic_probe as _};
 
-    // It is necessary to enable the device.
-    pwm.enable().unwrap();
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let p = embassy_rp::init(Default::default());
 
-    // Turn on channel 0 at 0.
-    pwm.set_channel_on(Channel::C0, 0).unwrap();
+    let sda = p.PIN_0;
+    let scl = p.PIN_1;
 
-    // Turn off channel 0 at 2047, which is 50% in
-    // the range `[0..4095]`.
-    pwm.set_channel_off(Channel::C0, 2047).unwrap();
+    let irq = p.PIN_2;
+    let mut irq = Input::new(irq, Pull::Up);
 
-    tokio::time::sleep(Duration::from_secs(10)).await;
-    let _dev = pwm.destroy(); // Get the I2C device back
-    Ok(())
+    let mut i2c = i2c::I2c::new_blocking(p.I2C0, scl, sda, Config::default());
+    let mut sensor = Apds9960::new(i2c);
+    sensor.disable().unwrap();
+    sensor.enable().unwrap();
+    sensor.enable_proximity().unwrap();
+    sensor.enable_light().unwrap();
+    sensor.enable_wait().unwrap();
+    // sensor.enable_proximity_interrupts().unwrap();
+    sensor.set_proximity_low_threshold(5).unwrap();
+    sensor.set_proximity_high_threshold(255).unwrap();
+    // sensor.set_light_integration_time(72).unwrap();
+    //sensor.set_color_gain(2).unwrap();
+    //sensor.enable_light().unwrap();
+    //sensor.enable_light_interrupts().unwrap();
+    loop {
+        let p = sensor.read_proximity();
+        if let Ok(p) = p {
+            if p > 3 {
+                loop {
+                    if let Ok(light) = sensor.read_light() {
+                        defmt::info!("Light: {:?}", defmt::Debug2Format(&light));
+                        break;
+                    }
+                }
+            }
+        }
+        Timer::after(Duration::from_millis(100)).await;
+    }
 }
