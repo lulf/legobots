@@ -23,7 +23,7 @@ embassy-sync = { version = "0.6" }
 embassy-time = { version = "0.3", features = ["defmt", "defmt-timestamp-uptime"] }
 cortex-m = { version = "0.7.6" }
 embassy-rp = { version = "0.2", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl"] }
-apds9960 = { path = "../../apds9960-rs" }
+device-driver = "1.0.0"
 
 [profile.release]
 debug = 2
